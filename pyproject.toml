@@ -1,0 +1,17 @@
+[project]
+name = "bussola-publica"
+version = "0.1.0"
+description = "Legislative intelligence pipeline - Brazilian Chamber of Deputies"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27.0",
+    "pyyaml>=6.0.1",
+    "python-dotenv>=1.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bussola"]

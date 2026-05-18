@@ -1,0 +1,12 @@
+# Shared settings for all bronze extractors.
+# Endpoint-specific behavior lives in each extractor module.
+
+api:
+  base_url: https://dadosabertos.camara.leg.br/api/v2
+  timeout_seconds: 30
+  page_size: 100
+
+http:
+  max_retries: 3
+  retry_backoff_seconds: 2
+  request_delay_seconds: 0.2   # polite pause between detail calls

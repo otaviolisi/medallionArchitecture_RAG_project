@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# Env
+.env
+
+# Data (not versioned)
+data/bronze/**/*.json
+data/silver/*
+data/gold/*
+!data/**/.gitkeep
+
+# Logs
+logs/*.log
+!logs/.gitkeep
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
