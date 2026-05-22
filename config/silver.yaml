@@ -1,0 +1,28 @@
+tables:
+  deputies:
+    table_name: silver_deputies
+    pk: id
+    bronze_dir: data/bronze/deputies
+    file_pattern: "snapshot_*.json"
+    source_type: delta
+
+  parties:
+    table_name: silver_parties
+    pk: id
+    bronze_dir: data/bronze/parties
+    file_pattern: "snapshot_*.json"
+    source_type: snapshot
+
+  votings:
+    table_name: silver_votings
+    pk: id
+    bronze_dir: data/bronze/votings
+    file_pattern: "delta_*.json"
+    source_type: delta      # incremental: expira apenas PKs do batch
+
+  propositions:
+    table_name: silver_propositions
+    pk: id
+    bronze_dir: data/bronze/propositions
+    file_pattern: "delta_*.json"
+    source_type: delta
