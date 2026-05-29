@@ -4,21 +4,21 @@ tables:
     pk: id
     bronze_dir: data/bronze/deputies
     file_pattern: "snapshot_*.json"
-    source_type: delta
+    source_type: snapshot
 
   parties:
     table_name: silver_parties
     pk: id
     bronze_dir: data/bronze/parties
     file_pattern: "snapshot_*.json"
-    source_type: snapshot
+    source_type: overwrite
 
   votings:
     table_name: silver_votings
     pk: id
     bronze_dir: data/bronze/votings
     file_pattern: "delta_*.json"
-    source_type: delta      # incremental: expira apenas PKs do batch
+    source_type: delta
 
   propositions:
     table_name: silver_propositions
