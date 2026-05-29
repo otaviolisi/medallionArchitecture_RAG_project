@@ -3,10 +3,12 @@
 Handles:
 - Postgres connection via DATABASE_URL
 - CREATE TABLE IF NOT EXISTS (schema inferred from DataFrame)
-- SCD Type 2 upsert:
-    snapshot → expire ALL is_current rows, insert new batch
-    delta    → expire only rows whose PK is in the new batch
-- Adds is_current, loaded_at, source_file metadata columns automatically
+- Three loading strategies controlled by source_type:
+    snapshot → expire ALL is_current rows, insert new batch (SCD Type 2)
+    delta    → expire only rows whose PK is in the new batch (SCD Type 2)
+    overwrite → TRUNCATE table, insert new batch (no is_current column)
+- Adds loaded_at and source_file metadata columns to all strategies.
+- Adds is_current only for snapshot and delta strategies.
 """
 
 from __future__ import annotations
@@ -21,8 +23,6 @@ from sqlalchemy import create_engine, text
 from bussola.logger import get_logger
 
 log = get_logger("bussola.silver.db")
-
-SILVER_CONFIG_PATH = "config/silver.yaml"
 
 
 def _get_engine():
@@ -65,26 +65,30 @@ def load_to_silver(
     """Load a transformed DataFrame into the silver Postgres table.
 
     Args:
-        df: output of a silver transform function (clean, typed columns).
+        df: output of a silver transform function.
         table: target Postgres table name.
         pk: primary key column name.
-        source_type: "snapshot" or "delta" — controls expiry strategy.
+        source_type: "snapshot", "delta", or "overwrite".
         source_file: bronze filename being processed (audit trail).
 
     Returns:
         Number of rows inserted.
     """
     df = _serialize_complex_columns(df)
-    df["is_current"] = True
     df["loaded_at"] = datetime.now(timezone.utc)
     df["source_file"] = source_file
+    if source_type != "overwrite":
+        df["is_current"] = True
 
     engine = _get_engine()
     exists = _table_exists(engine, table)
 
     with engine.begin() as conn:
         if exists:
-            if source_type == "snapshot":
+            if source_type == "overwrite":
+                conn.execute(text(f'TRUNCATE TABLE "{table}"'))
+                log.info("  truncated %s (overwrite)", table)
+            elif source_type == "snapshot":
                 conn.execute(
                     text(f'UPDATE "{table}" SET is_current = false WHERE is_current = true')
                 )
