@@ -4,15 +4,17 @@ version = "0.1.0"
 description = "Legislative intelligence pipeline - Brazilian Chamber of Deputies"
 requires-python = ">=3.11"
 
-   dependencies = [
+dependencies = [
     "httpx>=0.27.0",
     "pyyaml>=6.0.1",
     "python-dotenv>=1.0.0",
     "pandas>=2.0.0",
     "sqlalchemy>=2.0.0",
     "psycopg2-binary>=2.9.0",
-   
+    "openai>=1.0.0",
+    "numpy>=1.26.0",
 ]
+
 
 [build-system]
 requires = ["hatchling"]
