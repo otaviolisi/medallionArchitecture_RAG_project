@@ -1,0 +1,459 @@
+{
+  "version": "1.0.0",
+  "generatedAt": "2026-06-11T00:00:00Z",
+  "projectRoot": "medallionArchitecture_RAG_project",
+  "projectName": "Bússola Pública",
+  "description": "End-to-end legislative intelligence pipeline for Brazilian Chamber of Deputies data using Medallion architecture (Bronze → Silver → Gold → AI → API).",
+  "nodes": [
+    {
+      "id": "file:src/bussola/settings.py",
+      "type": "file",
+      "name": "settings.py",
+      "filePath": "src/bussola/settings.py",
+      "layer": "utility",
+      "summary": "Loads shared configuration from config/settings.yaml into a frozen Settings dataclass. Supports environment variable override for CAMARA_API_BASE_URL. Used by all bronze extractors to get base URL, timeouts, page size, retry policy, and request delay.",
+      "language": "python",
+      "concepts": ["interfaces"]
+    },
+    {
+      "id": "file:src/bussola/logger.py",
+      "type": "file",
+      "name": "logger.py",
+      "filePath": "src/bussola/logger.py",
+      "layer": "utility",
+      "summary": "Idempotent logger factory that writes to both stdout and a rolling logs/pipeline.log file. Respects LOG_LEVEL env var. All pipeline modules call get_logger() with a dotted name for hierarchical log output.",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:src/bussola/state.py",
+      "type": "file",
+      "name": "state.py",
+      "filePath": "src/bussola/state.py",
+      "layer": "utility",
+      "summary": "Idempotency engine for bronze extractors. Persists a _state.json file tracking high-water marks (HWM), snapshot histories, and delta histories per endpoint. Atomic writes via tmp-file-then-rename. Provides load_state(), save_state(), record_snapshot(), and record_delta().",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:src/bussola/bronze/_http.py",
+      "type": "file",
+      "name": "_http.py",
+      "filePath": "src/bussola/bronze/_http.py",
+      "layer": "service",
+      "summary": "Shared HTTP client for all bronze extractors. Wraps httpx with exponential-backoff retry on 5xx, 429, timeouts, and network errors. Fast-fails on 4xx client errors (non-retryable). Exposes make_client() and get_json() helpers.",
+      "language": "python",
+      "concepts": ["async-await"]
+    },
+    {
+      "id": "file:src/bussola/bronze/_pagination.py",
+      "type": "file",
+      "name": "_pagination.py",
+      "filePath": "src/bussola/bronze/_pagination.py",
+      "layer": "service",
+      "summary": "Generic paginator for the Chamber API list endpoints. Yields pages of records using pagina/itens query params. Detects the last page when records returned < page_size. Has a 1000-page safeguard to prevent infinite loops.",
+      "language": "python",
+      "concepts": ["iterators"]
+    },
+    {
+      "id": "file:src/bussola/bronze/_writer.py",
+      "type": "file",
+      "name": "_writer.py",
+      "filePath": "src/bussola/bronze/_writer.py",
+      "layer": "service",
+      "summary": "Writes bronze JSON files to data/bronze/<endpoint>/<filename>.json. Creates output directories as needed. All bronze extractors route their output through this single writer.",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:src/bussola/bronze/deputies.py",
+      "type": "file",
+      "name": "deputies.py",
+      "filePath": "src/bussola/bronze/deputies.py",
+      "layer": "data",
+      "summary": "Bronze extractor for /deputados. Strategy: paginate the full list of ~513 deputy summaries, then fan-out to each deputy's URI for full profile detail. Merges summary+detail into {id, summary, detail} records. Saves one snapshot JSON per run named by today's date. Re-runs always overwrite today's file.",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:src/bussola/bronze/parties.py",
+      "type": "file",
+      "name": "parties.py",
+      "filePath": "src/bussola/bronze/parties.py",
+      "layer": "data",
+      "summary": "Bronze extractor for /partidos. Same snapshot+fan-out strategy as deputies but for ~21 political parties. Saves a dated snapshot JSON per run. Parties are treated as overwrite (no meaningful history) at the silver layer.",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:src/bussola/bronze/votings.py",
+      "type": "file",
+      "name": "votings.py",
+      "filePath": "src/bussola/bronze/votings.py",
+      "layer": "data",
+      "summary": "Bronze extractor for /votacoes using incremental delta with high-water mark (HWM). Uses dataHoraRegistro as HWM. On first run fetches 3 months of history; subsequent runs only pull records newer than the last HWM. No fan-out needed — list payload is complete. Always writes a delta file even when empty (audit trail).",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:src/bussola/bronze/propositions.py",
+      "type": "file",
+      "name": "propositions.py",
+      "filePath": "src/bussola/bronze/propositions.py",
+      "layer": "data",
+      "summary": "Bronze extractor for /proposicoes — the most complex extractor. HWM-based incremental delta on dataApresentacao, with 90-day date chunking (API limitation). Fan-out per proposition to fetch full detail. First run fetches 12 months. Supports --limit for smoke testing. Handles ~98k records on full backfill.",
+      "language": "python",
+      "concepts": ["higher-order-functions"]
+    },
+    {
+      "id": "file:src/bussola/silver/_db.py",
+      "type": "file",
+      "name": "_db.py",
+      "filePath": "src/bussola/silver/_db.py",
+      "layer": "data",
+      "summary": "Shared silver loader that writes transformed DataFrames to Supabase PostgreSQL. Implements three SCD strategies: snapshot (expire all is_current rows, insert fresh batch), delta (expire only PKs in new batch), overwrite (TRUNCATE + INSERT). Adds loaded_at, source_file, and is_current metadata columns automatically.",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:src/bussola/silver/deputies.py",
+      "type": "file",
+      "name": "deputies.py",
+      "filePath": "src/bussola/silver/deputies.py",
+      "layer": "data",
+      "summary": "Silver transform for deputies. Flattens nested bronze {id, summary, detail} records using pd.json_normalize(). Selects ~40 columns and renames them to the silver schema contract (English/camelCase). Returns a typed DataFrame ready for Postgres via the shared _db.py loader.",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:src/bussola/silver/parties.py",
+      "type": "file",
+      "name": "parties.py",
+      "filePath": "src/bussola/silver/parties.py",
+      "layer": "data",
+      "summary": "Silver transform for parties. Flattens bronze party records and normalizes leader (liderança) sub-objects. Returns a DataFrame for overwrite-strategy load — parties table is always fully replaced, no SCD history.",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:src/bussola/silver/votings.py",
+      "type": "file",
+      "name": "votings.py",
+      "filePath": "src/bussola/silver/votings.py",
+      "layer": "data",
+      "summary": "Silver transform for votings. Reads bronze delta JSON, normalizes the flat list records, and parses the data field to extract a DATE column. Returns a DataFrame for delta-strategy load (only new PKs are expired).",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:src/bussola/silver/propositions.py",
+      "type": "file",
+      "name": "propositions.py",
+      "filePath": "src/bussola/silver/propositions.py",
+      "layer": "data",
+      "summary": "Silver transform for propositions. Flattens statusProposicao sub-object using json_normalize, selects ~32 columns, renames to silver contract. Parses dataApresentacao and statusDataHora to datetime. Returns a DataFrame for delta-strategy load. This is the target table for both AI enrichment jobs.",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:src/bussola/gold/gold_deputies.sql",
+      "type": "file",
+      "name": "gold_deputies.sql",
+      "filePath": "src/bussola/gold/gold_deputies.sql",
+      "layer": "data",
+      "summary": "PostgreSQL materialized view over silver_deputies WHERE is_current=true. Parses the redeSocial JSON array to extract twitter, facebook, and instagram handles as separate TEXT columns. Provides the clean, analytical deputies table for the API layer.",
+      "language": "sql",
+      "concepts": []
+    },
+    {
+      "id": "file:src/bussola/gold/gold_parties.sql",
+      "type": "file",
+      "name": "gold_parties.sql",
+      "filePath": "src/bussola/gold/gold_parties.sql",
+      "layer": "data",
+      "summary": "PostgreSQL materialized view over silver_parties. Since parties use overwrite strategy (no is_current), this view selects all current rows and flattens leader information. Joinable to gold_deputies via gold_parties.sigla = gold_deputies.partido.",
+      "language": "sql",
+      "concepts": []
+    },
+    {
+      "id": "file:src/bussola/gold/gold_votings.sql",
+      "type": "file",
+      "name": "gold_votings.sql",
+      "filePath": "src/bussola/gold/gold_votings.sql",
+      "layer": "data",
+      "summary": "PostgreSQL materialized view over silver_votings WHERE is_current=true. Exposes voting sessions with date, approval status (1/0), committee (siglaOrgao), and the free-text proposition description.",
+      "language": "sql",
+      "concepts": []
+    },
+    {
+      "id": "file:src/bussola/gold/gold_propositions.sql",
+      "type": "file",
+      "name": "gold_propositions.sql",
+      "filePath": "src/bussola/gold/gold_propositions.sql",
+      "layer": "data",
+      "summary": "PostgreSQL materialized view over silver_propositions WHERE is_current=true. Exposes all proposition fields including AI-enriched columns (tema_classificado, tema_score, resumo_executivo). This is the primary analytical table queried by the Text-to-SQL API.",
+      "language": "sql",
+      "concepts": []
+    },
+    {
+      "id": "file:src/bussola/AI/embeddings.py",
+      "type": "file",
+      "name": "embeddings.py",
+      "filePath": "src/bussola/AI/embeddings.py",
+      "layer": "service",
+      "summary": "AI Path A: topic classification via OpenAI text-embedding-3-small. Embeds each proposition's ementa and computes cosine similarity against 10 predefined Portuguese topic descriptions. Writes tema_classificado + tema_score back to silver_propositions. SCD2-aware: inherits classification from history rows when ementa is unchanged to avoid redundant API calls. Batches 100 rows per API call.",
+      "language": "python",
+      "concepts": ["higher-order-functions"]
+    },
+    {
+      "id": "file:src/bussola/AI/summarizer.py",
+      "type": "file",
+      "name": "summarizer.py",
+      "filePath": "src/bussola/AI/summarizer.py",
+      "layer": "service",
+      "summary": "AI Path B: 3-line executive summary generation via gpt-4o-mini. Processes one proposition at a time, using ementaDetalhada when available. SCD2-aware: inherits summaries from history when ementa is unchanged. Commits after each row — safe to interrupt and resume. Portuguese system prompt focuses on practical impact.",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:src/bussola/api/auth.py",
+      "type": "file",
+      "name": "auth.py",
+      "filePath": "src/bussola/api/auth.py",
+      "layer": "api",
+      "summary": "FastAPI dependency for X-API-Key header authentication. Reads the expected key from the API_KEY environment variable. Returns 401 Unauthorized if the key is missing or wrong. Used as a dependency on all protected endpoints.",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:src/bussola/api/schema.py",
+      "type": "file",
+      "name": "schema.py",
+      "filePath": "src/bussola/api/schema.py",
+      "layer": "api",
+      "summary": "Pydantic v2 request/response models for the API. AskRequest carries the natural language question. AskResponse returns the original question, the generated SQL, the raw query result rows, and the LLM-formulated Portuguese answer.",
+      "language": "python",
+      "concepts": ["interfaces"]
+    },
+    {
+      "id": "file:src/bussola/api/sql_agent.py",
+      "type": "file",
+      "name": "sql_agent.py",
+      "filePath": "src/bussola/api/sql_agent.py",
+      "layer": "api",
+      "summary": "Text-to-SQL agent over Gold materialized views. 4-step flow: (1) LLM generates SQL from Gold schema context + user question, (2) regex safety check blocks all DDL/DML keywords, (3) executes pure SELECT against PostgreSQL, (4) LLM formulates a Portuguese natural-language answer from the result rows. Uses gpt-4o-mini for both generation and answer steps.",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:src/bussola/api/main.py",
+      "type": "file",
+      "name": "main.py",
+      "filePath": "src/bussola/api/main.py",
+      "layer": "api",
+      "summary": "FastAPI application entry point. Exposes POST /ask (authenticated) and GET /health. Validates required env vars (DATABASE_URL, OPENAI_API_KEY, API_KEY) on startup via lifespan context. Delegates question processing to sql_agent.run().",
+      "language": "python",
+      "concepts": ["async-await"]
+    },
+    {
+      "id": "file:config/settings.yaml",
+      "type": "file",
+      "name": "settings.yaml",
+      "filePath": "config/settings.yaml",
+      "layer": "utility",
+      "summary": "YAML configuration for all bronze extractors: Câmara API base URL, HTTP timeout, page size (100), max retries (3), backoff seconds (2), and polite request delay (0.2s between fan-out calls).",
+      "language": "yaml",
+      "concepts": []
+    },
+    {
+      "id": "file:config/silver.yaml",
+      "type": "file",
+      "name": "silver.yaml",
+      "filePath": "config/silver.yaml",
+      "layer": "utility",
+      "summary": "YAML configuration for the silver layer: per-endpoint table name, primary key column, source_type (snapshot/delta/overwrite), and bronze file path pattern. Controls which SCD strategy _db.py applies per endpoint.",
+      "language": "yaml",
+      "concepts": []
+    },
+    {
+      "id": "file:scripts/run_deputies.py",
+      "type": "file",
+      "name": "run_deputies.py",
+      "filePath": "scripts/run_deputies.py",
+      "layer": "utility",
+      "summary": "CLI runner for the deputies bronze extractor. Parses optional --limit argument for smoke-testing. Entry point: uv run scripts/run_deputies.py.",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:scripts/run_votings.py",
+      "type": "file",
+      "name": "run_votings.py",
+      "filePath": "scripts/run_votings.py",
+      "layer": "utility",
+      "summary": "CLI runner for the votings bronze extractor. Invokes bronze.votings.extract() for incremental delta ingestion.",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:scripts/run_propositions.py",
+      "type": "file",
+      "name": "run_propositions.py",
+      "filePath": "scripts/run_propositions.py",
+      "layer": "utility",
+      "summary": "CLI runner for the propositions bronze extractor. Supports --limit for smoke test (e.g. --limit 10) before full backfill of ~98k records.",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:scripts/run_silver_deputies.py",
+      "type": "file",
+      "name": "run_silver_deputies.py",
+      "filePath": "scripts/run_silver_deputies.py",
+      "layer": "utility",
+      "summary": "CLI runner for silver deputies load. Reads unprocessed bronze snapshot files, calls silver.deputies.transform(), loads via _db.py with snapshot SCD2 strategy. Supports --dry-run to inspect the DataFrame without writing.",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:scripts/run_silver_propositions.py",
+      "type": "file",
+      "name": "run_silver_propositions.py",
+      "filePath": "scripts/run_silver_propositions.py",
+      "layer": "utility",
+      "summary": "CLI runner for silver propositions load. Reads unprocessed bronze delta files from silver/_state.json, transforms, and loads with delta SCD2 strategy. Skips already-processed files automatically.",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:scripts/run_ai_embeddings.py",
+      "type": "file",
+      "name": "run_ai_embeddings.py",
+      "filePath": "scripts/run_ai_embeddings.py",
+      "layer": "utility",
+      "summary": "CLI entry point for AI topic classification. Calls AI.embeddings.classify_propositions(). Resumable — processes only unclassified current rows.",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:scripts/run_ai_summarizer.py",
+      "type": "file",
+      "name": "run_ai_summarizer.py",
+      "filePath": "scripts/run_ai_summarizer.py",
+      "layer": "utility",
+      "summary": "CLI entry point for AI executive summary generation. Calls AI.summarizer.summarize_propositions(). Resumable — processes only propositions with resumo_executivo IS NULL.",
+      "language": "python",
+      "concepts": []
+    },
+    {
+      "id": "file:pyproject.toml",
+      "type": "file",
+      "name": "pyproject.toml",
+      "filePath": "pyproject.toml",
+      "layer": "utility",
+      "summary": "Project manifest for the bussola-publica package. Declares Python >=3.11, uses hatchling build backend. Key dependencies: httpx, pandas, sqlalchemy, psycopg2-binary, openai, numpy, fastapi, uvicorn.",
+      "language": "toml",
+      "concepts": []
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source": "file:src/bussola/bronze/_http.py", "target": "file:src/bussola/settings.py", "type": "imports", "label": "Settings" },
+    { "id": "e2", "source": "file:src/bussola/bronze/_http.py", "target": "file:src/bussola/logger.py", "type": "imports", "label": "get_logger" },
+    { "id": "e3", "source": "file:src/bussola/bronze/_pagination.py", "target": "file:src/bussola/bronze/_http.py", "type": "imports", "label": "get_json" },
+    { "id": "e4", "source": "file:src/bussola/bronze/_pagination.py", "target": "file:src/bussola/logger.py", "type": "imports", "label": "get_logger" },
+    { "id": "e5", "source": "file:src/bussola/bronze/_writer.py", "target": "file:src/bussola/logger.py", "type": "imports", "label": "get_logger" },
+    { "id": "e6", "source": "file:src/bussola/bronze/deputies.py", "target": "file:src/bussola/bronze/_http.py", "type": "imports", "label": "get_json, make_client" },
+    { "id": "e7", "source": "file:src/bussola/bronze/deputies.py", "target": "file:src/bussola/bronze/_pagination.py", "type": "imports", "label": "paginate" },
+    { "id": "e8", "source": "file:src/bussola/bronze/deputies.py", "target": "file:src/bussola/bronze/_writer.py", "type": "imports", "label": "write_json" },
+    { "id": "e9", "source": "file:src/bussola/bronze/deputies.py", "target": "file:src/bussola/logger.py", "type": "imports", "label": "get_logger" },
+    { "id": "e10", "source": "file:src/bussola/bronze/deputies.py", "target": "file:src/bussola/settings.py", "type": "imports", "label": "load_settings" },
+    { "id": "e11", "source": "file:src/bussola/bronze/deputies.py", "target": "file:src/bussola/state.py", "type": "imports", "label": "load_state, record_snapshot, save_state" },
+    { "id": "e12", "source": "file:src/bussola/bronze/parties.py", "target": "file:src/bussola/bronze/_http.py", "type": "imports", "label": "get_json, make_client" },
+    { "id": "e13", "source": "file:src/bussola/bronze/parties.py", "target": "file:src/bussola/bronze/_pagination.py", "type": "imports", "label": "paginate" },
+    { "id": "e14", "source": "file:src/bussola/bronze/parties.py", "target": "file:src/bussola/bronze/_writer.py", "type": "imports", "label": "write_json" },
+    { "id": "e15", "source": "file:src/bussola/bronze/parties.py", "target": "file:src/bussola/state.py", "type": "imports", "label": "load_state, record_snapshot, save_state" },
+    { "id": "e16", "source": "file:src/bussola/bronze/votings.py", "target": "file:src/bussola/bronze/_http.py", "type": "imports", "label": "make_client" },
+    { "id": "e17", "source": "file:src/bussola/bronze/votings.py", "target": "file:src/bussola/bronze/_pagination.py", "type": "imports", "label": "paginate" },
+    { "id": "e18", "source": "file:src/bussola/bronze/votings.py", "target": "file:src/bussola/bronze/_writer.py", "type": "imports", "label": "write_json" },
+    { "id": "e19", "source": "file:src/bussola/bronze/votings.py", "target": "file:src/bussola/state.py", "type": "imports", "label": "load_state, record_delta, save_state" },
+    { "id": "e20", "source": "file:src/bussola/bronze/propositions.py", "target": "file:src/bussola/bronze/_http.py", "type": "imports", "label": "get_json, make_client" },
+    { "id": "e21", "source": "file:src/bussola/bronze/propositions.py", "target": "file:src/bussola/bronze/_pagination.py", "type": "imports", "label": "paginate" },
+    { "id": "e22", "source": "file:src/bussola/bronze/propositions.py", "target": "file:src/bussola/bronze/_writer.py", "type": "imports", "label": "write_json" },
+    { "id": "e23", "source": "file:src/bussola/bronze/propositions.py", "target": "file:src/bussola/state.py", "type": "imports", "label": "load_state, record_delta, save_state" },
+    { "id": "e24", "source": "file:src/bussola/silver/_db.py", "target": "file:src/bussola/logger.py", "type": "imports", "label": "get_logger" },
+    { "id": "e25", "source": "file:src/bussola/silver/deputies.py", "target": "file:src/bussola/silver/_db.py", "type": "uses", "label": "load_to_silver (snapshot)" },
+    { "id": "e26", "source": "file:src/bussola/silver/parties.py", "target": "file:src/bussola/silver/_db.py", "type": "uses", "label": "load_to_silver (overwrite)" },
+    { "id": "e27", "source": "file:src/bussola/silver/votings.py", "target": "file:src/bussola/silver/_db.py", "type": "uses", "label": "load_to_silver (delta)" },
+    { "id": "e28", "source": "file:src/bussola/silver/propositions.py", "target": "file:src/bussola/silver/_db.py", "type": "uses", "label": "load_to_silver (delta)" },
+    { "id": "e29", "source": "file:src/bussola/gold/gold_deputies.sql", "target": "file:src/bussola/silver/deputies.py", "type": "uses", "label": "reads silver_deputies" },
+    { "id": "e30", "source": "file:src/bussola/gold/gold_parties.sql", "target": "file:src/bussola/silver/parties.py", "type": "uses", "label": "reads silver_parties" },
+    { "id": "e31", "source": "file:src/bussola/gold/gold_votings.sql", "target": "file:src/bussola/silver/votings.py", "type": "uses", "label": "reads silver_votings" },
+    { "id": "e32", "source": "file:src/bussola/gold/gold_propositions.sql", "target": "file:src/bussola/silver/propositions.py", "type": "uses", "label": "reads silver_propositions" },
+    { "id": "e33", "source": "file:src/bussola/AI/embeddings.py", "target": "file:src/bussola/silver/propositions.py", "type": "uses", "label": "reads+updates silver_propositions" },
+    { "id": "e34", "source": "file:src/bussola/AI/summarizer.py", "target": "file:src/bussola/silver/propositions.py", "type": "uses", "label": "reads+updates silver_propositions" },
+    { "id": "e35", "source": "file:src/bussola/api/sql_agent.py", "target": "file:src/bussola/gold/gold_propositions.sql", "type": "uses", "label": "queries gold_propositions" },
+    { "id": "e36", "source": "file:src/bussola/api/sql_agent.py", "target": "file:src/bussola/gold/gold_deputies.sql", "type": "uses", "label": "queries gold_deputies" },
+    { "id": "e37", "source": "file:src/bussola/api/sql_agent.py", "target": "file:src/bussola/gold/gold_parties.sql", "type": "uses", "label": "queries gold_parties" },
+    { "id": "e38", "source": "file:src/bussola/api/sql_agent.py", "target": "file:src/bussola/gold/gold_votings.sql", "type": "uses", "label": "queries gold_votings" },
+    { "id": "e39", "source": "file:src/bussola/api/main.py", "target": "file:src/bussola/api/auth.py", "type": "imports", "label": "verify_api_key" },
+    { "id": "e40", "source": "file:src/bussola/api/main.py", "target": "file:src/bussola/api/schema.py", "type": "imports", "label": "AskRequest, AskResponse" },
+    { "id": "e41", "source": "file:src/bussola/api/main.py", "target": "file:src/bussola/api/sql_agent.py", "type": "calls", "label": "sql_agent.run()" },
+    { "id": "e42", "source": "file:scripts/run_deputies.py", "target": "file:src/bussola/bronze/deputies.py", "type": "calls", "label": "extract()" },
+    { "id": "e43", "source": "file:scripts/run_votings.py", "target": "file:src/bussola/bronze/votings.py", "type": "calls", "label": "extract()" },
+    { "id": "e44", "source": "file:scripts/run_propositions.py", "target": "file:src/bussola/bronze/propositions.py", "type": "calls", "label": "extract()" },
+    { "id": "e45", "source": "file:scripts/run_silver_deputies.py", "target": "file:src/bussola/silver/deputies.py", "type": "calls", "label": "transform()" },
+    { "id": "e46", "source": "file:scripts/run_silver_propositions.py", "target": "file:src/bussola/silver/propositions.py", "type": "calls", "label": "transform()" },
+    { "id": "e47", "source": "file:scripts/run_ai_embeddings.py", "target": "file:src/bussola/AI/embeddings.py", "type": "calls", "label": "classify_propositions()" },
+    { "id": "e48", "source": "file:scripts/run_ai_summarizer.py", "target": "file:src/bussola/AI/summarizer.py", "type": "calls", "label": "summarize_propositions()" },
+    { "id": "e49", "source": "file:src/bussola/settings.py", "target": "file:config/settings.yaml", "type": "uses", "label": "reads config" },
+    { "id": "e50", "source": "file:src/bussola/bronze/deputies.py", "target": "file:src/bussola/bronze/parties.py", "type": "uses", "label": "same pattern (sibling)" }
+  ],
+  "tours": [
+    {
+      "id": "tour:pipeline-overview",
+      "name": "Full Pipeline Walkthrough",
+      "description": "Follow data from the Brazilian Chamber API all the way to the natural language API.",
+      "steps": [
+        { "nodeId": "file:config/settings.yaml", "reason": "Start here — global HTTP config for the API client" },
+        { "nodeId": "file:src/bussola/settings.py", "reason": "Settings are loaded from YAML into a frozen dataclass" },
+        { "nodeId": "file:src/bussola/bronze/_http.py", "reason": "Shared HTTP client with retry logic — all extractors use this" },
+        { "nodeId": "file:src/bussola/bronze/_pagination.py", "reason": "Generic paginator — yields page-by-page from any list endpoint" },
+        { "nodeId": "file:src/bussola/state.py", "reason": "Idempotency engine — tracks HWMs and prevents duplicate ingestion" },
+        { "nodeId": "file:src/bussola/bronze/deputies.py", "reason": "Snapshot extractor — full list + fan-out for deputy profiles" },
+        { "nodeId": "file:src/bussola/bronze/propositions.py", "reason": "Most complex extractor — HWM + 90-day chunking + fan-out" },
+        { "nodeId": "file:src/bussola/silver/_db.py", "reason": "Silver loader — three SCD strategies in one function" },
+        { "nodeId": "file:src/bussola/silver/propositions.py", "reason": "Silver transform — flattens nested bronze JSON to typed DataFrame" },
+        { "nodeId": "file:src/bussola/gold/gold_propositions.sql", "reason": "Gold materialized view — business-ready serving layer" },
+        { "nodeId": "file:src/bussola/AI/embeddings.py", "reason": "AI Path A — topic classification via cosine similarity" },
+        { "nodeId": "file:src/bussola/AI/summarizer.py", "reason": "AI Path B — executive summaries via gpt-4o-mini" },
+        { "nodeId": "file:src/bussola/api/sql_agent.py", "reason": "Text-to-SQL engine — question → SQL → safe execution → Portuguese answer" },
+        { "nodeId": "file:src/bussola/api/main.py", "reason": "FastAPI entry point — POST /ask ties everything together" }
+      ]
+    },
+    {
+      "id": "tour:bronze-layer",
+      "name": "Bronze Layer Deep Dive",
+      "description": "Understand the raw ingestion layer — how data is fetched, paginated, and stored idempotently.",
+      "steps": [
+        { "nodeId": "file:src/bussola/bronze/_http.py", "reason": "HTTP client with retry logic" },
+        { "nodeId": "file:src/bussola/bronze/_pagination.py", "reason": "Generic paginator" },
+        { "nodeId": "file:src/bussola/bronze/_writer.py", "reason": "JSON file writer" },
+        { "nodeId": "file:src/bussola/state.py", "reason": "HWM state management" },
+        { "nodeId": "file:src/bussola/bronze/deputies.py", "reason": "Snapshot + fan-out pattern" },
+        { "nodeId": "file:src/bussola/bronze/votings.py", "reason": "Incremental delta with HWM" },
+        { "nodeId": "file:src/bussola/bronze/propositions.py", "reason": "HWM + 90-day chunking" }
+      ]
+    },
+    {
+      "id": "tour:ai-layer",
+      "name": "AI Enrichment Layer",
+      "description": "How propositions are classified by topic and enriched with executive summaries using OpenAI.",
+      "steps": [
+        { "nodeId": "file:src/bussola/silver/propositions.py", "reason": "Source table for AI enrichment" },
+        { "nodeId": "file:src/bussola/AI/embeddings.py", "reason": "Topic classification via embeddings + cosine similarity" },
+        { "nodeId": "file:src/bussola/AI/summarizer.py", "reason": "3-line summaries via gpt-4o-mini" },
+        { "nodeId": "file:src/bussola/gold/gold_propositions.sql", "reason": "AI columns surfaced in the gold view" }
+      ]
+    }
+  ]
+}

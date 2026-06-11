@@ -20,6 +20,8 @@ SELECT
     "statusApreciacao",
     "descricaoTipo",
     "ementaDetalhada",
+    "tema_classificado",
+    "resumo_executivo",
     keywords,
     loaded_at
 FROM silver_propositions
