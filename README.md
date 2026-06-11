@@ -44,7 +44,7 @@ all with idempotent, resumable runs.
 ║                                                                          ║
 ║  snapshot_*.json          snapshot_*.json                                ║
 ║  list + fan-out           list + fan-out                                 ║
-║  (deputies, parties)      (parties)                                      ║
+║  (deputies, parties)                                                     ║
 ║                                                                          ║
 ║  delta_*.json             delta_*.json                                   ║
 ║  HWM on dataHoraRegistro  HWM on dataApresentacao + fan-out             ║
@@ -88,6 +88,20 @@ all with idempotent, resumable runs.
 ║                                                                          ║
 ║  SCD2-aware: inherits AI data from history when ementa is unchanged      ║
 ╚══════════════════════════════════════════════════════════════════════════╝
+            ║
+            ▼  FastAPI · OpenAI API
+╔══════════════════════════════════════════════════════════════════════════╗
+║  API LAYER — Natural Language Interface                                  ║
+║                                                                          ║
+║  POST /ask  { "question": "..." }                                        ║
+║    1. LLM generates SQL from Gold schema + question                      ║
+║    2. Safety check — SELECT-only, blocks all DDL/DML                     ║
+║    3. Executes against PostgreSQL                                        ║
+║    4. LLM formulates a Portuguese answer from the result                 ║
+║    → { question, sql, result, answer }                                   ║
+║                                                                          ║
+║  Auth: X-API-Key header · Swagger UI at /docs                            ║
+╚══════════════════════════════════════════════════════════════════════════╝
 ```
 
 ---
@@ -116,6 +130,9 @@ all with idempotent, resumable runs.
 | Gold layer | PostgreSQL Materialized Views |
 | AI — embeddings | OpenAI `text-embedding-3-small` · `numpy` cosine similarity |
 | AI — summaries | OpenAI `gpt-4o-mini` · Portuguese system prompt |
+| API | FastAPI · Uvicorn · Pydantic v2 |
+| API auth | `X-API-Key` header validation |
+| Text-to-SQL | OpenAI `gpt-4o-mini` with typed Gold schema as context |
 
 ---
 
@@ -132,6 +149,9 @@ all with idempotent, resumable runs.
 | Gold layer | Materialized views over `is_current = true` | Precomputed, query-friendly serving layer; refreshed after each silver load |
 | AI efficiency | Inherit AI data from history when `ementa` is unchanged | Avoids redundant API calls for propositions that only had a status update |
 | AI persistence | Commit to DB after each batch (embeddings) / each row (summaries) | Progress is preserved on failure; safe to resume mid-run |
+| Text-to-SQL approach | Gold schema + typed columns fed as LLM context | Leverages structured data directly; no vector index needed for factual queries |
+| SQL safety check | Regex + `startswith("SELECT")` before execution | Prevents any DDL/DML from reaching the database regardless of LLM output |
+| Schema documentation | Column types + join rules explicitly stated in prompt | Prevents the LLM from hallucinating incompatible JOINs or non-existent relationships |
 
 ---
 
@@ -140,7 +160,7 @@ all with idempotent, resumable runs.
 - Python 3.11+
 - [uv](https://github.com/astral-sh/uv)
 - A [Supabase](https://supabase.com) project (free tier works)
-- An [OpenAI](https://platform.openai.com) API key (for the AI layer)
+- An [OpenAI](https://platform.openai.com) API key (AI layer + API)
 
 ---
 
@@ -163,8 +183,11 @@ cp .env.example .env
 # Supabase connection pooler (port 6543)
 DATABASE_URL=postgresql://postgres.<ref>:<password>@<host>.pooler.supabase.com:6543/postgres
 
-# OpenAI — required for the AI layer only
+# OpenAI — required for the AI layer and the API
 OPENAI_API_KEY=sk-...
+
+# API authentication key
+API_KEY=your-secret-key
 ```
 
 ---
@@ -249,6 +272,43 @@ Both scripts are resumable. On each run they:
 
 ---
 
+### API — Natural Language Interface
+
+```bash
+# Install dependencies (first time only)
+uv add fastapi uvicorn
+
+# Start the API
+uv run uvicorn bussola.api.main:app --reload
+```
+
+Swagger UI available at `http://localhost:8000/docs`.
+
+**Example request:**
+
+```bash
+curl -X POST http://localhost:8000/ask \
+  -H "X-API-Key: your-secret-key" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Quais proposições de saúde foram apresentadas em 2025?"}'
+```
+
+**Example response:**
+
+```json
+{
+  "question": "Quais proposições de saúde foram apresentadas em 2025?",
+  "sql": "SELECT id, ementa, \"dataApresentacao\", \"statusDescricaoSituacao\" FROM gold_propositions WHERE tema_classificado = 'Saúde' AND ano = 2025 LIMIT 50",
+  "result": [ { "id": 123, "ementa": "...", ... } ],
+  "answer": "Em 2025 foram apresentadas 47 proposições classificadas como Saúde. Entre elas destacam-se..."
+}
+```
+
+> The `sql` field is always returned so you can inspect exactly what was executed.
+> Any query that is not a pure `SELECT` is blocked before reaching the database.
+
+---
+
 ## Project Structure
 
 ```
@@ -299,6 +359,11 @@ bussola-publica/
     ├── AI/
     │   ├── embeddings.py             # Path A: topic classification via cosine similarity
     │   └── summarizer.py             # Path B: 3-line summaries via gpt-4o-mini
+    ├── api/
+    │   ├── main.py                   # FastAPI app — POST /ask, GET /health
+    │   ├── auth.py                   # X-API-Key header validation
+    │   ├── schema.py                 # Pydantic request/response models
+    │   └── sql_agent.py              # Text-to-SQL: schema context, safety check, execution
     ├── logger.py
     ├── settings.py
     └── state.py
@@ -312,7 +377,8 @@ bussola-publica/
 - [x] Silver layer — SCD Type 2 with three load strategies
 - [x] Gold layer — PostgreSQL materialized views
 - [x] AI layer — embeddings classification + LLM executive summaries
-- [ ] **pgvector** — store proposition embeddings for semantic search / RAG queries
+- [x] API layer — FastAPI Text-to-SQL with safety check and natural language answers
+- [ ] **pgvector** — store proposition embeddings for semantic search / hybrid RAG
 - [ ] **n8n orchestration** — daily pipeline automation and Telegram alerts
 - [ ] **Production migration** — PySpark + Delta Lake + Airflow on Databricks
 

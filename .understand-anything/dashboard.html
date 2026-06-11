@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Bússola Pública — Knowledge Graph</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #22263a;
+    --border: #2e3350;
+    --text: #e2e8f0;
+    --muted: #8892aa;
+    --accent: #6c8efb;
+
+    /* Layer colors */
+    --api: #f59e42;
+    --service: #6c8efb;
+    --data: #34d399;
+    --utility: #a78bfa;
+    --unknown: #64748b;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 16px; font-weight: 700; color: #fff; }
+  header span { font-size: 12px; color: var(--muted); }
+
+  .search-box {
+    margin-left: auto;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    color: var(--text);
+    font-size: 13px;
+    width: 220px;
+    outline: none;
+  }
+  .search-box:focus { border-color: var(--accent); }
+
+  .layer-legend { display: flex; gap: 12px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+  /* ── Tabs ── */
+  .tabs {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 0;
+    flex-shrink: 0;
+  }
+  .tab {
+    padding: 9px 20px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--muted);
+    border-bottom: 2px solid transparent;
+    user-select: none;
+    transition: color 0.15s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ── Main layout ── */
+  .workspace {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ── Graph panel ── */
+  #graph-panel {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+  #canvas {
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+  }
+  #canvas:active { cursor: grabbing; }
+
+  /* ── Sidebar ── */
+  #sidebar {
+    width: 340px;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .sidebar-header {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .node-detail { padding: 16px; }
+  .node-detail h2 { font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+  .node-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    text-transform: capitalize;
+  }
+
+  .node-summary {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.6;
+    margin-bottom: 14px;
+  }
+
+  .detail-section { margin-top: 12px; }
+  .detail-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .detail-path {
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    background: var(--surface2);
+    padding: 6px 10px;
+    border-radius: 4px;
+    word-break: break-all;
+  }
+
+  .relations-list { list-style: none; }
+  .relations-list li {
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .relations-list li:last-child { border-bottom: none; }
+  .rel-name { color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rel-type { font-size: 10px; color: var(--muted); background: var(--surface2); padding: 2px 6px; border-radius: 3px; flex-shrink: 0; }
+  .rel-link { color: var(--accent); cursor: pointer; font-size: 11px; flex-shrink: 0; }
+  .rel-link:hover { text-decoration: underline; }
+
+  /* placeholder */
+  .empty-state {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+    padding: 24px;
+  }
+
+  /* ── Tour panel ── */
+  #tour-panel { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+  #tour-panel.active { display: flex; }
+
+  .tour-list { padding: 12px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex: 1; }
+  .tour-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .tour-card:hover { border-color: var(--accent); }
+  .tour-card.active { border-color: var(--accent); background: #1e2540; }
+  .tour-card h3 { font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 4px; }
+  .tour-card p { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+  .tour-steps { padding: 12px; overflow-y: auto; flex: 1; }
+  .tour-step {
+    display: flex;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.1s;
+    border-radius: 4px;
+  }
+  .tour-step:hover { background: var(--surface2); padding-left: 8px; }
+  .tour-step:last-child { border-bottom: none; }
+  .step-num {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent); color: #fff;
+    font-size: 11px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .step-info h4 { font-size: 13px; font-weight: 600; color: var(--text); }
+  .step-info p { font-size: 11px; color: var(--muted); margin-top: 2px; line-height: 1.5; }
+
+  /* ── Graph canvas helpers ── */
+  .graph-tooltip {
+    position: absolute;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--text);
+    pointer-events: none;
+    z-index: 100;
+    max-width: 240px;
+    line-height: 1.5;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+
+  /* ── Stats ── */
+  .stats-bar {
+    display: flex;
+    gap: 20px;
+    padding: 8px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+  .stat-item strong { color: var(--text); }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🧭 Bússola Pública</h1>
+    <span>Legislative Intelligence Pipeline — Knowledge Graph</span>
+  </div>
+  <div class="layer-legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--api)"></div>API</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--service)"></div>Service</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--data)"></div>Data</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--utility)"></div>Utility</div>
+  </div>
+  <input class="search-box" id="search" placeholder="Search files…" />
+</header>
+
+<div class="tabs">
+  <div class="tab active" data-tab="graph">Graph View</div>
+  <div class="tab" data-tab="tours">Guided Tours</div>
+  <div class="tab" data-tab="list">All Files</div>
+</div>
+
+<div class="stats-bar">
+  <div class="stat-item"><strong id="node-count">0</strong> files</div>
+  <div class="stat-item"><strong id="edge-count">0</strong> connections</div>
+  <div class="stat-item">Scroll to zoom · Drag to pan · Click to inspect</div>
+</div>
+
+<div class="workspace">
+
+  <!-- Graph view -->
+  <div id="graph-panel">
+    <canvas id="canvas"></canvas>
+    <div class="graph-tooltip" id="tooltip" style="display:none"></div>
+  </div>
+
+  <!-- Tour panel -->
+  <div id="tour-panel">
+    <div class="tour-list" id="tour-list"></div>
+    <div class="tour-steps" id="tour-steps" style="display:none;border-top:1px solid var(--border)"></div>
+  </div>
+
+  <!-- All files list (hidden by default) -->
+  <div id="list-panel" style="display:none;flex:1;overflow-y:auto;padding:12px;background:var(--bg)">
+    <div id="file-list"></div>
+  </div>
+
+  <!-- Sidebar (node inspector) -->
+  <div id="sidebar">
+    <div class="sidebar-header">Node Inspector</div>
+    <div class="empty-state" id="empty-state">
+      Click any node in the graph<br>to inspect it here
+    </div>
+    <div class="node-detail" id="node-detail" style="display:none"></div>
+  </div>
+
+</div>
+
+<script>
+// ─── Data ───────────────────────────────────────────────────────────────────
+
+const GRAPH_DATA = {
+  "nodes": [
+    {"id":"file:src/bussola/settings.py","name":"settings.py","filePath":"src/bussola/settings.py","layer":"utility","summary":"Loads shared configuration from config/settings.yaml into a frozen Settings dataclass. Supports env var override for CAMARA_API_BASE_URL. Used by all bronze extractors.","language":"python"},
+    {"id":"file:src/bussola/logger.py","name":"logger.py","filePath":"src/bussola/logger.py","layer":"utility","summary":"Idempotent logger factory. Writes to stdout and logs/pipeline.log. Respects LOG_LEVEL env var.","language":"python"},
+    {"id":"file:src/bussola/state.py","name":"state.py","filePath":"src/bussola/state.py","layer":"utility","summary":"Idempotency engine for bronze extractors. Persists _state.json with HWMs and snapshot/delta histories. Atomic writes via tmp-file-then-rename.","language":"python"},
+    {"id":"file:src/bussola/bronze/_http.py","name":"_http.py","filePath":"src/bussola/bronze/_http.py","layer":"service","summary":"Shared HTTP client with exponential-backoff retry on 5xx, 429, timeouts. Fast-fails on 4xx. Exposes make_client() and get_json().","language":"python"},
+    {"id":"file:src/bussola/bronze/_pagination.py","name":"_pagination.py","filePath":"src/bussola/bronze/_pagination.py","layer":"service","summary":"Generic paginator for Chamber API list endpoints. Yields page-by-page using pagina/itens params. 1000-page safeguard.","language":"python"},
+    {"id":"file:src/bussola/bronze/_writer.py","name":"_writer.py","filePath":"src/bussola/bronze/_writer.py","layer":"service","summary":"Writes bronze JSON files to data/bronze/<endpoint>/<filename>.json. Single writer used by all extractors.","language":"python"},
+    {"id":"file:src/bussola/bronze/deputies.py","name":"deputies.py (bronze)","filePath":"src/bussola/bronze/deputies.py","layer":"data","summary":"Bronze extractor for /deputados. Paginated list + fan-out to each deputy's URI. Saves dated snapshot JSON. ~513 records.","language":"python"},
+    {"id":"file:src/bussola/bronze/parties.py","name":"parties.py (bronze)","filePath":"src/bussola/bronze/parties.py","layer":"data","summary":"Bronze extractor for /partidos. Snapshot + fan-out for ~21 political parties.","language":"python"},
+    {"id":"file:src/bussola/bronze/votings.py","name":"votings.py (bronze)","filePath":"src/bussola/bronze/votings.py","layer":"data","summary":"Bronze extractor for /votacoes. Incremental delta with HWM on dataHoraRegistro. No fan-out needed.","language":"python"},
+    {"id":"file:src/bussola/bronze/propositions.py","name":"propositions.py (bronze)","filePath":"src/bussola/bronze/propositions.py","layer":"data","summary":"Most complex extractor. HWM + 90-day chunking + fan-out per proposition. ~98k records on full backfill.","language":"python"},
+    {"id":"file:src/bussola/silver/_db.py","name":"_db.py (silver)","filePath":"src/bussola/silver/_db.py","layer":"data","summary":"Shared silver loader. Three SCD strategies: snapshot (expire all + insert), delta (expire by PK), overwrite (TRUNCATE + INSERT). Adds loaded_at, source_file, is_current.","language":"python"},
+    {"id":"file:src/bussola/silver/deputies.py","name":"deputies.py (silver)","filePath":"src/bussola/silver/deputies.py","layer":"data","summary":"Silver transform for deputies. Flattens nested JSON, selects ~40 columns, renames to silver schema contract.","language":"python"},
+    {"id":"file:src/bussola/silver/parties.py","name":"parties.py (silver)","filePath":"src/bussola/silver/parties.py","layer":"data","summary":"Silver transform for parties. Overwrite strategy — no SCD history needed.","language":"python"},
+    {"id":"file:src/bussola/silver/votings.py","name":"votings.py (silver)","filePath":"src/bussola/silver/votings.py","layer":"data","summary":"Silver transform for votings. Parses date field, delta SCD2 strategy.","language":"python"},
+    {"id":"file:src/bussola/silver/propositions.py","name":"propositions.py (silver)","filePath":"src/bussola/silver/propositions.py","layer":"data","summary":"Silver transform for propositions. Flattens statusProposicao, parses timestamps. Target for AI enrichment jobs.","language":"python"},
+    {"id":"file:src/bussola/gold/gold_deputies.sql","name":"gold_deputies.sql","filePath":"src/bussola/gold/gold_deputies.sql","layer":"data","summary":"Materialized view over silver_deputies (is_current=true). Parses redeSocial JSON → twitter/facebook/instagram columns.","language":"sql"},
+    {"id":"file:src/bussola/gold/gold_parties.sql","name":"gold_parties.sql","filePath":"src/bussola/gold/gold_parties.sql","layer":"data","summary":"Materialized view over silver_parties. Joinable to gold_deputies via sigla = partido.","language":"sql"},
+    {"id":"file:src/bussola/gold/gold_votings.sql","name":"gold_votings.sql","filePath":"src/bussola/gold/gold_votings.sql","layer":"data","summary":"Materialized view over silver_votings (is_current=true). Exposes voting sessions with approval status.","language":"sql"},
+    {"id":"file:src/bussola/gold/gold_propositions.sql","name":"gold_propositions.sql","filePath":"src/bussola/gold/gold_propositions.sql","layer":"data","summary":"Materialized view over silver_propositions (is_current=true). Includes AI columns: tema_classificado, tema_score, resumo_executivo.","language":"sql"},
+    {"id":"file:src/bussola/AI/embeddings.py","name":"embeddings.py","filePath":"src/bussola/AI/embeddings.py","layer":"service","summary":"AI Path A: topic classification via text-embedding-3-small + cosine similarity. 10 Portuguese topic categories. SCD2-aware inheritance. Batch size 100.","language":"python"},
+    {"id":"file:src/bussola/AI/summarizer.py","name":"summarizer.py","filePath":"src/bussola/AI/summarizer.py","layer":"service","summary":"AI Path B: 3-line executive summaries via gpt-4o-mini. SCD2-aware inheritance. Commits per row — safe to interrupt.","language":"python"},
+    {"id":"file:src/bussola/api/auth.py","name":"auth.py","filePath":"src/bussola/api/auth.py","layer":"api","summary":"FastAPI dependency for X-API-Key header auth. Returns 401 on invalid key.","language":"python"},
+    {"id":"file:src/bussola/api/schema.py","name":"schema.py","filePath":"src/bussola/api/schema.py","layer":"api","summary":"Pydantic v2 models: AskRequest (question) and AskResponse (question + sql + result + answer).","language":"python"},
+    {"id":"file:src/bussola/api/sql_agent.py","name":"sql_agent.py","filePath":"src/bussola/api/sql_agent.py","layer":"api","summary":"Text-to-SQL agent over Gold views. Generates SQL → safety check → execute → Portuguese answer. Blocks all DDL/DML keywords.","language":"python"},
+    {"id":"file:src/bussola/api/main.py","name":"main.py","filePath":"src/bussola/api/main.py","layer":"api","summary":"FastAPI app entry point. POST /ask (authenticated) + GET /health. Validates env vars on startup.","language":"python"},
+    {"id":"file:config/settings.yaml","name":"settings.yaml","filePath":"config/settings.yaml","layer":"utility","summary":"YAML config: API base URL, timeout, page size, retry policy, request delay.","language":"yaml"},
+    {"id":"file:config/silver.yaml","name":"silver.yaml","filePath":"config/silver.yaml","layer":"utility","summary":"YAML config per endpoint: table name, PK, source_type, bronze file path pattern.","language":"yaml"},
+    {"id":"file:scripts/run_deputies.py","name":"run_deputies.py","filePath":"scripts/run_deputies.py","layer":"utility","summary":"CLI runner for deputies bronze extraction. Supports --limit.","language":"python"},
+    {"id":"file:scripts/run_votings.py","name":"run_votings.py","filePath":"scripts/run_votings.py","layer":"utility","summary":"CLI runner for votings bronze extraction.","language":"python"},
+    {"id":"file:scripts/run_propositions.py","name":"run_propositions.py","filePath":"scripts/run_propositions.py","layer":"utility","summary":"CLI runner for propositions bronze extraction. Supports --limit for smoke testing.","language":"python"},
+    {"id":"file:scripts/run_silver_deputies.py","name":"run_silver_deputies.py","filePath":"scripts/run_silver_deputies.py","layer":"utility","summary":"CLI runner for silver deputies load. Supports --dry-run.","language":"python"},
+    {"id":"file:scripts/run_silver_propositions.py","name":"run_silver_propositions.py","filePath":"scripts/run_silver_propositions.py","layer":"utility","summary":"CLI runner for silver propositions load. Skips already-processed bronze files.","language":"python"},
+    {"id":"file:scripts/run_ai_embeddings.py","name":"run_ai_embeddings.py","filePath":"scripts/run_ai_embeddings.py","layer":"utility","summary":"CLI entry point for AI topic classification.","language":"python"},
+    {"id":"file:scripts/run_ai_summarizer.py","name":"run_ai_summarizer.py","filePath":"scripts/run_ai_summarizer.py","layer":"utility","summary":"CLI entry point for AI executive summary generation.","language":"python"},
+    {"id":"file:pyproject.toml","name":"pyproject.toml","filePath":"pyproject.toml","layer":"utility","summary":"Package manifest. Python >=3.11, hatchling build. Key deps: httpx, pandas, sqlalchemy, psycopg2, openai, numpy, fastapi, uvicorn.","language":"toml"}
+  ],
+  "edges": [
+    {"source":"file:src/bussola/bronze/_http.py","target":"file:src/bussola/settings.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/_http.py","target":"file:src/bussola/logger.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/_pagination.py","target":"file:src/bussola/bronze/_http.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/_pagination.py","target":"file:src/bussola/logger.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/_writer.py","target":"file:src/bussola/logger.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/deputies.py","target":"file:src/bussola/bronze/_http.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/deputies.py","target":"file:src/bussola/bronze/_pagination.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/deputies.py","target":"file:src/bussola/bronze/_writer.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/deputies.py","target":"file:src/bussola/logger.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/deputies.py","target":"file:src/bussola/settings.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/deputies.py","target":"file:src/bussola/state.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/parties.py","target":"file:src/bussola/bronze/_http.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/parties.py","target":"file:src/bussola/bronze/_pagination.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/parties.py","target":"file:src/bussola/bronze/_writer.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/parties.py","target":"file:src/bussola/state.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/votings.py","target":"file:src/bussola/bronze/_http.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/votings.py","target":"file:src/bussola/bronze/_pagination.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/votings.py","target":"file:src/bussola/bronze/_writer.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/votings.py","target":"file:src/bussola/state.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/propositions.py","target":"file:src/bussola/bronze/_http.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/propositions.py","target":"file:src/bussola/bronze/_pagination.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/propositions.py","target":"file:src/bussola/bronze/_writer.py","type":"imports"},
+    {"source":"file:src/bussola/bronze/propositions.py","target":"file:src/bussola/state.py","type":"imports"},
+    {"source":"file:src/bussola/silver/_db.py","target":"file:src/bussola/logger.py","type":"imports"},
+    {"source":"file:src/bussola/silver/deputies.py","target":"file:src/bussola/silver/_db.py","type":"uses"},
+    {"source":"file:src/bussola/silver/parties.py","target":"file:src/bussola/silver/_db.py","type":"uses"},
+    {"source":"file:src/bussola/silver/votings.py","target":"file:src/bussola/silver/_db.py","type":"uses"},
+    {"source":"file:src/bussola/silver/propositions.py","target":"file:src/bussola/silver/_db.py","type":"uses"},
+    {"source":"file:src/bussola/gold/gold_deputies.sql","target":"file:src/bussola/silver/deputies.py","type":"uses"},
+    {"source":"file:src/bussola/gold/gold_parties.sql","target":"file:src/bussola/silver/parties.py","type":"uses"},
+    {"source":"file:src/bussola/gold/gold_votings.sql","target":"file:src/bussola/silver/votings.py","type":"uses"},
+    {"source":"file:src/bussola/gold/gold_propositions.sql","target":"file:src/bussola/silver/propositions.py","type":"uses"},
+    {"source":"file:src/bussola/AI/embeddings.py","target":"file:src/bussola/silver/propositions.py","type":"uses"},
+    {"source":"file:src/bussola/AI/summarizer.py","target":"file:src/bussola/silver/propositions.py","type":"uses"},
+    {"source":"file:src/bussola/api/sql_agent.py","target":"file:src/bussola/gold/gold_propositions.sql","type":"uses"},
+    {"source":"file:src/bussola/api/sql_agent.py","target":"file:src/bussola/gold/gold_deputies.sql","type":"uses"},
+    {"source":"file:src/bussola/api/sql_agent.py","target":"file:src/bussola/gold/gold_parties.sql","type":"uses"},
+    {"source":"file:src/bussola/api/sql_agent.py","target":"file:src/bussola/gold/gold_votings.sql","type":"uses"},
+    {"source":"file:src/bussola/api/main.py","target":"file:src/bussola/api/auth.py","type":"imports"},
+    {"source":"file:src/bussola/api/main.py","target":"file:src/bussola/api/schema.py","type":"imports"},
+    {"source":"file:src/bussola/api/main.py","target":"file:src/bussola/api/sql_agent.py","type":"calls"},
+    {"source":"file:scripts/run_deputies.py","target":"file:src/bussola/bronze/deputies.py","type":"calls"},
+    {"source":"file:scripts/run_votings.py","target":"file:src/bussola/bronze/votings.py","type":"calls"},
+    {"source":"file:scripts/run_propositions.py","target":"file:src/bussola/bronze/propositions.py","type":"calls"},
+    {"source":"file:scripts/run_silver_deputies.py","target":"file:src/bussola/silver/deputies.py","type":"calls"},
+    {"source":"file:scripts/run_silver_propositions.py","target":"file:src/bussola/silver/propositions.py","type":"calls"},
+    {"source":"file:scripts/run_ai_embeddings.py","target":"file:src/bussola/AI/embeddings.py","type":"calls"},
+    {"source":"file:scripts/run_ai_summarizer.py","target":"file:src/bussola/AI/summarizer.py","type":"calls"},
+    {"source":"file:src/bussola/settings.py","target":"file:config/settings.yaml","type":"uses"}
+  ],
+  "tours": [
+    {
+      "id":"tour:pipeline-overview","name":"Full Pipeline Walkthrough",
+      "description":"Follow data from the Brazilian Chamber API all the way to the natural language query API.",
+      "steps":[
+        {"nodeId":"file:config/settings.yaml","reason":"Start here — global HTTP config for the API client"},
+        {"nodeId":"file:src/bussola/settings.py","reason":"Settings loaded from YAML into a frozen dataclass"},
+        {"nodeId":"file:src/bussola/bronze/_http.py","reason":"Shared HTTP client with exponential-backoff retry"},
+        {"nodeId":"file:src/bussola/bronze/_pagination.py","reason":"Generic paginator — yields page-by-page"},
+        {"nodeId":"file:src/bussola/state.py","reason":"Idempotency engine — tracks HWMs and prevents duplicates"},
+        {"nodeId":"file:src/bussola/bronze/deputies.py","reason":"Snapshot extractor — full list + fan-out for deputy profiles"},
+        {"nodeId":"file:src/bussola/bronze/propositions.py","reason":"Most complex extractor — HWM + 90-day chunking + fan-out"},
+        {"nodeId":"file:src/bussola/silver/_db.py","reason":"Silver loader — three SCD strategies in one function"},
+        {"nodeId":"file:src/bussola/silver/propositions.py","reason":"Silver transform — flattens nested bronze JSON"},
+        {"nodeId":"file:src/bussola/gold/gold_propositions.sql","reason":"Gold materialized view — business-ready serving layer"},
+        {"nodeId":"file:src/bussola/AI/embeddings.py","reason":"AI Path A — topic classification via cosine similarity"},
+        {"nodeId":"file:src/bussola/AI/summarizer.py","reason":"AI Path B — executive summaries via gpt-4o-mini"},
+        {"nodeId":"file:src/bussola/api/sql_agent.py","reason":"Text-to-SQL engine with safety check"},
+        {"nodeId":"file:src/bussola/api/main.py","reason":"FastAPI entry point — POST /ask ties it all together"}
+      ]
+    },
+    {
+      "id":"tour:bronze-layer","name":"Bronze Layer Deep Dive",
+      "description":"Understand raw ingestion — how data is fetched, paginated, and stored idempotently.",
+      "steps":[
+        {"nodeId":"file:src/bussola/bronze/_http.py","reason":"HTTP client with retry logic"},
+        {"nodeId":"file:src/bussola/bronze/_pagination.py","reason":"Generic paginator"},
+        {"nodeId":"file:src/bussola/bronze/_writer.py","reason":"JSON file writer"},
+        {"nodeId":"file:src/bussola/state.py","reason":"HWM state management"},
+        {"nodeId":"file:src/bussola/bronze/deputies.py","reason":"Snapshot + fan-out pattern"},
+        {"nodeId":"file:src/bussola/bronze/votings.py","reason":"Incremental delta with HWM"},
+        {"nodeId":"file:src/bussola/bronze/propositions.py","reason":"HWM + 90-day chunking"}
+      ]
+    },
+    {
+      "id":"tour:ai-layer","name":"AI Enrichment Layer",
+      "description":"How propositions are classified by topic and enriched with executive summaries using OpenAI.",
+      "steps":[
+        {"nodeId":"file:src/bussola/silver/propositions.py","reason":"Source table for AI enrichment"},
+        {"nodeId":"file:src/bussola/AI/embeddings.py","reason":"Topic classification via embeddings + cosine similarity"},
+        {"nodeId":"file:src/bussola/AI/summarizer.py","reason":"3-line summaries via gpt-4o-mini"},
+        {"nodeId":"file:src/bussola/gold/gold_propositions.sql","reason":"AI columns surfaced in the gold view"},
+        {"nodeId":"file:src/bussola/api/sql_agent.py","reason":"Query AI-enriched data via natural language"}
+      ]
+    }
+  ]
+};
+
+// ─── Layer colors ────────────────────────────────────────────────────────────
+const LAYER_COLOR = {
+  api:     '#f59e42',
+  service: '#6c8efb',
+  data:    '#34d399',
+  utility: '#a78bfa',
+  unknown: '#64748b',
+};
+
+// ─── State ───────────────────────────────────────────────────────────────────
+let transform = { x: 0, y: 0, scale: 1 };
+let isDragging = false;
+let dragStart = { x: 0, y: 0 };
+let selectedNode = null;
+let hoveredNode = null;
+let nodePositions = {};
+let searchQuery = '';
+
+// ─── Layout ───────────────────────────────────────────────────────────────────
+function computeLayout() {
+  const layerOrder = ['utility', 'service', 'data', 'api'];
+  const layerGroups = { utility: [], service: [], data: [], api: [] };
+
+  GRAPH_DATA.nodes.forEach(n => {
+    (layerGroups[n.layer] || layerGroups['utility']).push(n);
+  });
+
+  // Pipeline stages for data layer (left to right flow)
+  const bronzeFiles = GRAPH_DATA.nodes.filter(n => n.filePath.includes('bronze/') && !n.filePath.includes('_'));
+  const bronzeShared = GRAPH_DATA.nodes.filter(n => n.filePath.includes('bronze/_') );
+  const silverFiles = GRAPH_DATA.nodes.filter(n => n.filePath.includes('silver/') && !n.filePath.includes('_'));
+  const silverDb = GRAPH_DATA.nodes.filter(n => n.filePath.includes('silver/_'));
+  const goldFiles = GRAPH_DATA.nodes.filter(n => n.filePath.includes('gold/'));
+  const aiFiles = GRAPH_DATA.nodes.filter(n => n.filePath.includes('/AI/'));
+  const utilityCore = GRAPH_DATA.nodes.filter(n => n.layer === 'utility' && !n.filePath.includes('scripts/'));
+  const scriptFiles = GRAPH_DATA.nodes.filter(n => n.filePath.includes('scripts/'));
+  const apiFiles = GRAPH_DATA.nodes.filter(n => n.layer === 'api');
+
+  const W = 1600, H = 1000;
+  const cols = [160, 360, 560, 760, 960, 1160, 1360];
+
+  function place(nodes, cx, startY, gap) {
+    nodes.forEach((n, i) => {
+      nodePositions[n.id] = { x: cx, y: startY + i * gap };
+    });
+  }
+
+  // Col 0: scripts
+  place(scriptFiles, cols[0], 60, 60);
+
+  // Col 1: utility core
+  place(utilityCore, cols[1], 120, 80);
+
+  // Col 2: bronze shared + bronze extractors
+  place(bronzeShared, cols[2], 60, 70);
+  place(bronzeFiles, cols[2], 280, 80);
+
+  // Col 3: silver
+  place(silverDb, cols[3], 100, 70);
+  place(silverFiles, cols[3], 220, 80);
+
+  // Col 4: gold
+  place(goldFiles, cols[4], 150, 90);
+
+  // Col 5: AI
+  place(aiFiles, cols[5], 250, 110);
+
+  // Col 6: API
+  place(apiFiles, cols[6], 180, 90);
+}
+
+// ─── Canvas rendering ────────────────────────────────────────────────────────
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+  canvas.width = canvas.offsetWidth * devicePixelRatio;
+  canvas.height = canvas.offsetHeight * devicePixelRatio;
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  draw();
+}
+
+function worldToScreen(wx, wy) {
+  return {
+    x: wx * transform.scale + transform.x,
+    y: wy * transform.scale + transform.y,
+  };
+}
+
+function screenToWorld(sx, sy) {
+  return {
+    x: (sx - transform.x) / transform.scale,
+    y: (sy - transform.y) / transform.scale,
+  };
+}
+
+const NODE_W = 130, NODE_H = 36, NODE_R = 6;
+
+function nodeRect(pos) {
+  return { x: pos.x - NODE_W/2, y: pos.y - NODE_H/2, w: NODE_W, h: NODE_H };
+}
+
+function isNodeVisible(node) {
+  if (!searchQuery) return true;
+  const q = searchQuery.toLowerCase();
+  return node.name.toLowerCase().includes(q) ||
+         node.filePath.toLowerCase().includes(q) ||
+         node.summary.toLowerCase().includes(q) ||
+         node.layer.toLowerCase().includes(q);
+}
+
+function drawRoundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function draw() {
+  const W = canvas.offsetWidth, H = canvas.offsetHeight;
+  ctx.clearRect(0, 0, W, H);
+
+  // Background grid
+  ctx.save();
+  ctx.strokeStyle = '#1e2235';
+  ctx.lineWidth = 0.5;
+  const gridSize = 40 * transform.scale;
+  const offsetX = transform.x % gridSize;
+  const offsetY = transform.y % gridSize;
+  for (let x = offsetX; x < W; x += gridSize) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let y = offsetY; y < H; y += gridSize) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+  ctx.restore();
+
+  // Edges
+  GRAPH_DATA.edges.forEach(edge => {
+    const srcPos = nodePositions[edge.source];
+    const tgtPos = nodePositions[edge.target];
+    if (!srcPos || !tgtPos) return;
+
+    const srcNode = GRAPH_DATA.nodes.find(n => n.id === edge.source);
+    const tgtNode = GRAPH_DATA.nodes.find(n => n.id === edge.target);
+    const srcVisible = isNodeVisible(srcNode);
+    const tgtVisible = isNodeVisible(tgtNode);
+    if (!srcVisible && !tgtVisible) return;
+
+    const src = worldToScreen(srcPos.x, srcPos.y);
+    const tgt = worldToScreen(tgtPos.x, tgtPos.y);
+
+    ctx.save();
+    ctx.beginPath();
+
+    const isHighlighted = selectedNode &&
+      (edge.source === selectedNode.id || edge.target === selectedNode.id);
+
+    const cp1x = src.x + (tgt.x - src.x) * 0.5;
+    const cp1y = src.y;
+    const cp2x = src.x + (tgt.x - src.x) * 0.5;
+    const cp2y = tgt.y;
+
+    ctx.moveTo(src.x, src.y);
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, tgt.x, tgt.y);
+
+    if (isHighlighted) {
+      const color = LAYER_COLOR[srcNode.layer] || '#64748b';
+      ctx.strokeStyle = color + 'cc';
+      ctx.lineWidth = 2;
+    } else {
+      ctx.strokeStyle = '#2e3350' + ((!srcVisible || !tgtVisible) ? '33' : '99');
+      ctx.lineWidth = 1;
+    }
+    ctx.stroke();
+
+    // Arrow head on highlighted edges
+    if (isHighlighted) {
+      const dx = tgt.x - cp2x, dy = tgt.y - cp2y;
+      const angle = Math.atan2(dy, dx);
+      const ax = tgt.x - 12 * Math.cos(angle);
+      const ay = tgt.y - 12 * Math.sin(angle);
+      ctx.beginPath();
+      ctx.moveTo(tgt.x, tgt.y);
+      ctx.lineTo(ax - 6 * Math.sin(angle), ay + 6 * Math.cos(angle));
+      ctx.lineTo(ax + 6 * Math.sin(angle), ay - 6 * Math.cos(angle));
+      ctx.closePath();
+      ctx.fillStyle = LAYER_COLOR[srcNode.layer] || '#64748b';
+      ctx.fill();
+    }
+    ctx.restore();
+  });
+
+  // Nodes
+  GRAPH_DATA.nodes.forEach(node => {
+    const pos = nodePositions[node.id];
+    if (!pos) return;
+
+    const sp = worldToScreen(pos.x, pos.y);
+    const { x, y, w, h } = nodeRect({ x: sp.x, y: sp.y });
+    const color = LAYER_COLOR[node.layer] || LAYER_COLOR.unknown;
+    const isSelected = selectedNode && selectedNode.id === node.id;
+    const isHovered = hoveredNode && hoveredNode.id === node.id;
+    const visible = isNodeVisible(node);
+
+    ctx.save();
+    ctx.globalAlpha = visible ? 1 : 0.2;
+
+    // Shadow on selected
+    if (isSelected) {
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = color;
+    }
+
+    // Fill
+    drawRoundRect(ctx, x, y, w, h, NODE_R);
+    ctx.fillStyle = isSelected ? color + '33' : (isHovered ? '#1e2540' : '#1a1d27');
+    ctx.fill();
+
+    // Border
+    drawRoundRect(ctx, x, y, w, h, NODE_R);
+    ctx.strokeStyle = isSelected ? color : (isHovered ? color + '99' : '#2e3350');
+    ctx.lineWidth = isSelected ? 2 : 1;
+    ctx.stroke();
+
+    // Color stripe
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y + h - 3, w, 3);
+    ctx.beginPath();
+    ctx.moveTo(x, y + h - 3);
+    ctx.lineTo(x + NODE_R, y + h);
+    ctx.lineTo(x + w - NODE_R, y + h);
+    ctx.lineTo(x + w, y + h - 3);
+    ctx.fill();
+
+    ctx.restore();
+
+    // Label
+    ctx.save();
+    ctx.globalAlpha = visible ? 1 : 0.2;
+    ctx.font = `${isSelected ? 600 : 400} ${Math.max(9, 11 * transform.scale)}px 'Segoe UI', system-ui`;
+    ctx.fillStyle = isSelected ? '#fff' : (isHovered ? '#e2e8f0' : '#94a3b8');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    const label = node.name.length > 18 ? node.name.slice(0, 16) + '…' : node.name;
+    ctx.fillText(label, sp.x, sp.y);
+    ctx.restore();
+  });
+}
+
+// ─── Interaction ─────────────────────────────────────────────────────────────
+function getNodeAt(sx, sy) {
+  const wp = screenToWorld(sx, sy);
+  for (const node of GRAPH_DATA.nodes) {
+    const pos = nodePositions[node.id];
+    if (!pos) continue;
+    if (Math.abs(wp.x - pos.x) < NODE_W / 2 && Math.abs(wp.y - pos.y) < NODE_H / 2) {
+      return node;
+    }
+  }
+  return null;
+}
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const delta = e.deltaY < 0 ? 1.1 : 0.9;
+  transform.x = mx - (mx - transform.x) * delta;
+  transform.y = my - (my - transform.y) * delta;
+  transform.scale = Math.max(0.2, Math.min(3, transform.scale * delta));
+  draw();
+}, { passive: false });
+
+canvas.addEventListener('mousedown', e => {
+  isDragging = true;
+  dragStart = { x: e.clientX - transform.x, y: e.clientY - transform.y };
+});
+
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+
+  if (isDragging) {
+    transform.x = e.clientX - dragStart.x;
+    transform.y = e.clientY - dragStart.y;
+    draw();
+    return;
+  }
+
+  const node = getNodeAt(sx, sy);
+  if (node !== hoveredNode) {
+    hoveredNode = node;
+    draw();
+    if (node) {
+      const tooltip = document.getElementById('tooltip');
+      tooltip.style.display = 'block';
+      tooltip.style.left = (sx + 12) + 'px';
+      tooltip.style.top = (sy - 10) + 'px';
+      tooltip.innerHTML = `<strong>${node.name}</strong><br><span style="color:var(--muted)">${node.layer}</span><br><small>${node.summary.slice(0, 100)}…</small>`;
+    } else {
+      document.getElementById('tooltip').style.display = 'none';
+    }
+  }
+});
+
+canvas.addEventListener('mouseup', e => {
+  if (!isDragging) return;
+  const rect = canvas.getBoundingClientRect();
+  const moved = Math.abs(e.clientX - rect.left + transform.x - dragStart.x - transform.x) > 3;
+  isDragging = false;
+  if (!moved) {
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const node = getNodeAt(sx, sy);
+    if (node) selectNode(node);
+  }
+});
+canvas.addEventListener('mouseleave', () => { isDragging = false; });
+
+function selectNode(node) {
+  selectedNode = node;
+  document.getElementById('empty-state').style.display = 'none';
+  const detail = document.getElementById('node-detail');
+  detail.style.display = 'block';
+
+  const color = LAYER_COLOR[node.layer] || LAYER_COLOR.unknown;
+
+  // Find connections
+  const outgoing = GRAPH_DATA.edges
+    .filter(e => e.source === node.id)
+    .map(e => ({ ...GRAPH_DATA.nodes.find(n => n.id === e.target), edgeType: e.type, dir: 'out' }))
+    .filter(Boolean);
+  const incoming = GRAPH_DATA.edges
+    .filter(e => e.target === node.id)
+    .map(e => ({ ...GRAPH_DATA.nodes.find(n => n.id === e.source), edgeType: e.type, dir: 'in' }))
+    .filter(Boolean);
+
+  const relItems = (list, dir) => list.map(rel => {
+    const arrow = dir === 'out' ? '→' : '←';
+    return `<li>
+      <span class="rel-name">${rel.name}</span>
+      <span class="rel-type">${arrow} ${rel.edgeType}</span>
+      <span class="rel-link" onclick="selectNodeById('${rel.id}')">go</span>
+    </li>`;
+  }).join('');
+
+  detail.innerHTML = `
+    <h2>${node.name}</h2>
+    <span class="node-badge" style="background:${color}22;color:${color}">${node.layer} · ${node.language}</span>
+    <p class="node-summary">${node.summary}</p>
+    <div class="detail-section">
+      <div class="detail-label">File path</div>
+      <div class="detail-path">${node.filePath}</div>
+    </div>
+    ${outgoing.length ? `<div class="detail-section">
+      <div class="detail-label">Depends on (${outgoing.length})</div>
+      <ul class="relations-list">${relItems(outgoing, 'out')}</ul>
+    </div>` : ''}
+    ${incoming.length ? `<div class="detail-section">
+      <div class="detail-label">Used by (${incoming.length})</div>
+      <ul class="relations-list">${relItems(incoming, 'in')}</ul>
+    </div>` : ''}
+  `;
+
+  draw();
+  centerOnNode(node);
+}
+
+function selectNodeById(id) {
+  const node = GRAPH_DATA.nodes.find(n => n.id === id);
+  if (node) selectNode(node);
+}
+window.selectNodeById = selectNodeById;
+
+function centerOnNode(node) {
+  const pos = nodePositions[node.id];
+  if (!pos) return;
+  const W = canvas.offsetWidth, H = canvas.offsetHeight;
+  transform.x = W / 2 - pos.x * transform.scale;
+  transform.y = H / 2 - pos.y * transform.scale;
+  draw();
+}
+
+// ─── Tabs ────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+
+    const name = tab.dataset.tab;
+    document.getElementById('graph-panel').style.display = name === 'graph' ? 'block' : 'none';
+    document.getElementById('tour-panel').classList.toggle('active', name === 'tours');
+    document.getElementById('list-panel').style.display = name === 'list' ? 'block' : 'none';
+    document.getElementById('sidebar').style.display = name === 'graph' ? 'flex' : 'none';
+
+    if (name === 'graph') { resize(); }
+    if (name === 'list') { renderFileList(); }
+    if (name === 'tours') { renderTours(); }
+  });
+});
+
+// ─── Tours ───────────────────────────────────────────────────────────────────
+function renderTours() {
+  const list = document.getElementById('tour-list');
+  list.innerHTML = GRAPH_DATA.tours.map(tour => `
+    <div class="tour-card" data-tour="${tour.id}" onclick="selectTour('${tour.id}')">
+      <h3>${tour.name}</h3>
+      <p>${tour.description}</p>
+    </div>
+  `).join('');
+}
+
+function selectTour(id) {
+  const tour = GRAPH_DATA.tours.find(t => t.id === id);
+  if (!tour) return;
+
+  document.querySelectorAll('.tour-card').forEach(c => c.classList.toggle('active', c.dataset.tour === id));
+
+  const stepsEl = document.getElementById('tour-steps');
+  stepsEl.style.display = 'block';
+  stepsEl.innerHTML = `<div class="sidebar-header">${tour.name}</div>` +
+    tour.steps.map((step, i) => {
+      const node = GRAPH_DATA.nodes.find(n => n.id === step.nodeId);
+      if (!node) return '';
+      const color = LAYER_COLOR[node.layer] || LAYER_COLOR.unknown;
+      return `
+        <div class="tour-step" onclick="goToGraphNode('${step.nodeId}')">
+          <div class="step-num" style="background:${color}">${i + 1}</div>
+          <div class="step-info">
+            <h4>${node.name}</h4>
+            <p>${step.reason}</p>
+          </div>
+        </div>
+      `;
+    }).join('');
+}
+window.selectTour = selectTour;
+
+function goToGraphNode(id) {
+  // Switch to graph tab
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'graph'));
+  document.getElementById('graph-panel').style.display = 'block';
+  document.getElementById('tour-panel').classList.remove('active');
+  document.getElementById('list-panel').style.display = 'none';
+  document.getElementById('sidebar').style.display = 'flex';
+
+  const node = GRAPH_DATA.nodes.find(n => n.id === id);
+  if (node) {
+    resize();
+    selectNode(node);
+  }
+}
+window.goToGraphNode = goToGraphNode;
+
+// ─── File list ───────────────────────────────────────────────────────────────
+function renderFileList() {
+  const el = document.getElementById('file-list');
+  const layers = ['api', 'service', 'data', 'utility'];
+  const q = searchQuery.toLowerCase();
+
+  el.innerHTML = layers.map(layer => {
+    const nodes = GRAPH_DATA.nodes.filter(n => n.layer === layer &&
+      (!q || n.name.toLowerCase().includes(q) || n.filePath.toLowerCase().includes(q) || n.summary.toLowerCase().includes(q)));
+    if (!nodes.length) return '';
+    const color = LAYER_COLOR[layer];
+    return `
+      <div style="margin-bottom:16px">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:${color};margin-bottom:8px;padding:0 4px">
+          ${layer} layer (${nodes.length})
+        </div>
+        ${nodes.map(n => `
+          <div onclick="goToGraphNode('${n.id}')" style="
+            background:var(--surface);border:1px solid var(--border);border-radius:6px;
+            padding:10px 14px;margin-bottom:6px;cursor:pointer;transition:border-color .15s
+          " onmouseenter="this.style.borderColor='${color}'" onmouseleave="this.style.borderColor='var(--border)'">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+              <span style="font-weight:600;color:#fff;font-size:13px">${n.name}</span>
+              <span style="font-family:monospace;font-size:10px;color:var(--muted)">${n.language}</span>
+            </div>
+            <div style="font-size:12px;color:var(--muted);line-height:1.5">${n.summary.slice(0, 120)}…</div>
+            <div style="font-family:monospace;font-size:10px;color:${color};margin-top:4px">${n.filePath}</div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }).join('');
+}
+
+// ─── Search ───────────────────────────────────────────────────────────────────
+document.getElementById('search').addEventListener('input', e => {
+  searchQuery = e.target.value;
+  const activeTab = document.querySelector('.tab.active')?.dataset.tab;
+  if (activeTab === 'graph') draw();
+  else if (activeTab === 'list') renderFileList();
+});
+
+// ─── Stats ───────────────────────────────────────────────────────────────────
+document.getElementById('node-count').textContent = GRAPH_DATA.nodes.length;
+document.getElementById('edge-count').textContent = GRAPH_DATA.edges.length;
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+computeLayout();
+
+// Center the graph initially
+window.addEventListener('load', () => {
+  resize();
+  const W = canvas.offsetWidth, H = canvas.offsetHeight;
+  transform.x = W * 0.05;
+  transform.y = H * 0.08;
+  transform.scale = 0.75;
+  draw();
+});
+
+window.addEventListener('resize', resize);
+</script>
+</body>
+</html>
